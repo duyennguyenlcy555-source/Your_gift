@@ -1,0 +1,653 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Heart</title>
+    <!-- Tải Tailwind CSS để hỗ trợ bố cục cơ bản -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        /* Thiết lập toàn màn hình, loại bỏ thanh cuộn và giữ nền tối sâu */
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body, html {
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            background-color: #0b0b12; /* Nền tối sâu lãng mạn */
+            font-family: 'Inter', sans-serif;
+            user-select: none;
+            -webkit-user-select: none;
+        }
+        canvas {
+            display: block;
+            width: 100vw;
+            height: 100vh;
+            cursor: pointer;
+        }
+        /* Hiệu ứng phát sáng nhẹ nhàng cho nút Open */
+        @keyframes pulseGlow {
+            0%, 100% {
+                box-shadow: 0 0 18px rgba(244, 114, 182, 0.3), inset 0 0 10px rgba(244, 114, 182, 0.15);
+            }
+            50% {
+                box-shadow: 0 0 32px rgba(244, 114, 182, 0.6), inset 0 0 16px rgba(244, 114, 182, 0.3);
+            }
+        }
+        .btn-open-glow {
+            animation: pulseGlow 2.8s infinite ease-in-out;
+        }
+        /* Cho phép chọn/nhập văn bản mượt mà trong ô input */
+        input {
+            user-select: text;
+            -webkit-user-select: text;
+        }
+    </style>
+</head>
+<body class="relative flex items-center justify-center bg-[#0b0b12]">
+
+    <!-- Màn hình mở đầu tối giản (Chỉ giữ ô nhập tên và nút Open) -->
+    <div id="introOverlay" class="fixed inset-0 z-20 flex flex-col items-center justify-center bg-[#0b0b12]/90 backdrop-blur-[2px] transition-all duration-1000 ease-out px-4">
+        <!-- Ô nhập tên tối giản, mờ ảo -->
+        <div class="w-full max-w-xs mb-6">
+            <input
+                type="text"
+                id="nameInput"
+                maxlength="28"
+                autocomplete="off"
+                placeholder="Nhập tên của bạn..."
+                class="w-full px-5 py-3 text-center text-sm sm:text-base text-pink-100 placeholder-pink-200/40 bg-white/[0.04] border border-pink-400/35 rounded-full backdrop-blur-md outline-none transition-all duration-300 focus:border-pink-300/80 focus:bg-white/[0.08] focus:shadow-[0_0_20px_rgba(244,114,182,0.3)]"
+            />
+        </div>
+
+        <button id="openBtn" class="btn-open-glow group relative px-10 py-3.5 rounded-full bg-gradient-to-r from-pink-500/20 via-rose-500/25 to-pink-500/20 border border-pink-400/50 text-pink-100 font-medium tracking-[0.2em] uppercase text-sm sm:text-base transition-all duration-300 hover:scale-105 hover:border-pink-300 hover:bg-pink-500/30 active:scale-95 cursor-pointer">
+            <span class="relative z-10 drop-shadow-[0_0_8px_rgba(255,192,203,0.8)]">Open</span>
+        </button>
+    </div>
+
+    <!-- Nhãn hiển thị tên phát sáng ở trung tâm trái tim -->
+    <div id="heartNameWrapper" class="fixed inset-0 z-10 flex items-center justify-center pointer-events-none opacity-0 transition-opacity duration-1000">
+        <span id="heartNameLabel" class="px-4 text-center text-xl sm:text-2xl md:text-3xl font-light tracking-[0.18em] transition-all duration-700" style="transform: translateY(-2vh);"></span>
+    </div>
+
+    <!-- Canvas hiển thị hiệu ứng hạt trái tim -->
+    <canvas id="heartCanvas"></canvas>
+
+    <!-- Cụm nút điều khiển nhỏ gọn ở góc dưới (chỉ hiện sau khi mở trái tim) -->
+    <div id="controlsContainer" class="fixed bottom-5 right-5 flex flex-wrap justify-end gap-2 z-10 opacity-0 pointer-events-none transition-opacity duration-1000">
+        <button id="randomColorBtn" class="px-3.5 py-1.5 text-xs text-white/85 bg-white/[0.06] border border-white/20 rounded-full backdrop-blur-sm hover:bg-white/[0.14] hover:border-white/40 transition cursor-pointer flex items-center gap-1.5">
+            <span>✨ Đổi màu</span>
+        </button>
+        <button id="changeNameBtn" class="px-3.5 py-1.5 text-xs text-white/85 bg-white/[0.06] border border-white/20 rounded-full backdrop-blur-sm hover:bg-white/[0.14] hover:border-white/40 transition cursor-pointer">
+            Đổi tên
+        </button>
+        <button id="togglePulseBtn" class="px-3.5 py-1.5 text-xs text-white/85 bg-white/[0.06] border border-white/20 rounded-full backdrop-blur-sm hover:bg-white/[0.14] hover:border-white/40 transition cursor-pointer">
+            Nhịp đập: Bật
+        </button>
+    </div>
+
+    <script>
+        /**
+         * Khởi tạo các biến toàn cục và cấu hình Canvas
+         */
+        const canvas = document.getElementById('heartCanvas');
+        const ctx = canvas.getContext('2d');
+        const introOverlay = document.getElementById('introOverlay');
+        const nameInput = document.getElementById('nameInput');
+        const openBtn = document.getElementById('openBtn');
+        const heartNameWrapper = document.getElementById('heartNameWrapper');
+        const heartNameLabel = document.getElementById('heartNameLabel');
+        const controlsContainer = document.getElementById('controlsContainer');
+        const randomColorBtn = document.getElementById('randomColorBtn');
+        const changeNameBtn = document.getElementById('changeNameBtn');
+        const togglePulseBtn = document.getElementById('togglePulseBtn');
+
+        let width, height;
+        let particles = [];
+        let isPulsing = true;
+        let isOpened = false; // Trạng thái đã nhấn Open hay chưa
+        let time = 0;
+        let currentThemeIndex = 0;
+
+        // Trạng thái tương tác chuột / cảm ứng
+        const mouse = {
+            x: -9999,
+            y: -9999,
+            radius: 100,
+            active: false
+        };
+
+        // Bộ sưu tập các bảng màu lãng mạn, rực rỡ trên nền tối (không bị lóa trắng)
+        const colorThemes = [
+            {
+                name: 'Classic Rose Pink',
+                palette: [
+                    { r: 255, g: 130, b: 170 },
+                    { r: 245, g: 85,  b: 135 },
+                    { r: 225, g: 55,  b: 105 },
+                    { r: 195, g: 35,  b: 80  },
+                    { r: 255, g: 185, b: 205 }
+                ],
+                glowInner: 'rgba(220, 50, 100, 0.03)',
+                glowOuter: 'rgba(235, 65, 115, 0.07)',
+                textColor: '#ffd1e3',
+                textShadow: '0 0 14px rgba(244, 114, 182, 0.9), 0 0 28px rgba(225, 55, 105, 0.75)'
+            },
+            {
+                name: 'Ruby Crimson',
+                palette: [
+                    { r: 255, g: 95,  b: 110 },
+                    { r: 235, g: 45,  b: 65  },
+                    { r: 205, g: 25,  b: 45  },
+                    { r: 165, g: 15,  b: 35  },
+                    { r: 255, g: 155, b: 165 }
+                ],
+                glowInner: 'rgba(205, 25, 45, 0.03)',
+                glowOuter: 'rgba(235, 45, 65, 0.07)',
+                textColor: '#ffccd2',
+                textShadow: '0 0 14px rgba(239, 68, 68, 0.9), 0 0 28px rgba(185, 28, 28, 0.8)'
+            },
+            {
+                name: 'Electric Violet',
+                palette: [
+                    { r: 216, g: 140, b: 255 },
+                    { r: 185, g: 85,  b: 245 },
+                    { r: 150, g: 50,  b: 220 },
+                    { r: 115, g: 30,  b: 185 },
+                    { r: 238, g: 185, b: 255 }
+                ],
+                glowInner: 'rgba(150, 50, 220, 0.03)',
+                glowOuter: 'rgba(185, 85, 245, 0.07)',
+                textColor: '#edd5ff',
+                textShadow: '0 0 14px rgba(192, 132, 252, 0.9), 0 0 28px rgba(147, 51, 234, 0.8)'
+            },
+            {
+                name: 'Ice Cyan Blue',
+                palette: [
+                    { r: 110, g: 225, b: 255 },
+                    { r: 56,  g: 189, b: 248 },
+                    { r: 25,  g: 145, b: 225 },
+                    { r: 15,  g: 105, b: 190 },
+                    { r: 185, g: 242, b: 255 }
+                ],
+                glowInner: 'rgba(25, 145, 225, 0.03)',
+                glowOuter: 'rgba(56, 189, 248, 0.07)',
+                textColor: '#ccf3ff',
+                textShadow: '0 0 14px rgba(56, 189, 248, 0.9), 0 0 28px rgba(2, 132, 199, 0.8)'
+            },
+            {
+                name: 'Warm Gold Amber',
+                palette: [
+                    { r: 255, g: 205, b: 105 },
+                    { r: 245, g: 165, b: 55  },
+                    { r: 220, g: 125, b: 30  },
+                    { r: 185, g: 90,  b: 18  },
+                    { r: 255, g: 230, b: 165 }
+                ],
+                glowInner: 'rgba(220, 125, 30, 0.03)',
+                glowOuter: 'rgba(245, 165, 55, 0.07)',
+                textColor: '#ffebb8',
+                textShadow: '0 0 14px rgba(251, 191, 36, 0.9), 0 0 28px rgba(217, 119, 6, 0.8)'
+            },
+            {
+                name: 'Emerald Mint',
+                palette: [
+                    { r: 100, g: 245, b: 185 },
+                    { r: 45,  g: 212, b: 145 },
+                    { r: 20,  g: 175, b: 115 },
+                    { r: 12,  g: 135, b: 88  },
+                    { r: 175, g: 255, b: 220 }
+                ],
+                glowInner: 'rgba(20, 175, 115, 0.03)',
+                glowOuter: 'rgba(45, 212, 145, 0.07)',
+                textColor: '#c7ffea',
+                textShadow: '0 0 14px rgba(52, 211, 153, 0.9), 0 0 28px rgba(5, 150, 105, 0.8)'
+            },
+            {
+                name: 'Sunset Coral',
+                palette: [
+                    { r: 255, g: 145, b: 115 },
+                    { r: 248, g: 100, b: 75  },
+                    { r: 225, g: 68,  b: 50  },
+                    { r: 190, g: 45,  b: 35  },
+                    { r: 255, g: 195, b: 175 }
+                ],
+                glowInner: 'rgba(225, 68, 50, 0.03)',
+                glowOuter: 'rgba(248, 100, 75, 0.07)',
+                textColor: '#ffd9cf',
+                textShadow: '0 0 14px rgba(251, 113, 133, 0.9), 0 0 28px rgba(225, 29, 72, 0.8)'
+            }
+        ];
+
+        /**
+         * Phương trình toán học tạo hình trái tim chuẩn
+         * @param {number} t - Góc từ 0 đến 2 * PI
+         * @returns {object} Tọa độ {x, y} chuẩn hóa
+         */
+        function getHeartPoint(t) {
+            const x = 16 * Math.pow(Math.sin(t), 3);
+            const y = -(13 * Math.cos(t) - 5 * Math.cos(2 * t) - 2 * Math.cos(3 * t) - Math.cos(4 * t));
+            return { x, y };
+        }
+
+        /**
+         * Hàm tạo phân phối chuẩn (Gaussian) để hạt tập trung dày đặc ở viền
+         * và thưa dần một cách tự nhiên vào trong cũng như tỏa nhẹ ra ngoài.
+         */
+        function randomGaussian(mean = 0, stdev = 1) {
+            const u = 1 - Math.random();
+            const v = Math.random();
+            const z = Math.sqrt(-2.0 * Math.log(u)) * Math.cos(2.0 * Math.PI * v);
+            return z * stdev + mean;
+        }
+
+        /**
+         * Lớp đại diện cho từng hạt (Particle) cấu thành trái tim
+         */
+        class Particle {
+            constructor(scale) {
+                this.reset(scale);
+            }
+
+            reset(scale) {
+                // Chọn ngẫu nhiên một điểm trên đường viền trái tim
+                const t = Math.random() * Math.PI * 2;
+                const pos = getHeartPoint(t);
+
+                // Tạo độ lệch (offset) khỏi đường viền chính:
+                // - Đa số hạt nằm sát viền (mean hơi lệch vào trong một chút để tạo độ dày bên trong)
+                // - Một số ít hạt bay lơ lửng ra ngoài tạo hiệu ứng bụi phát sáng
+                let spreadFactor;
+                const randType = Math.random();
+
+                if (randType < 0.65) {
+                    // 65% hạt tạo thành lớp viền chính dày dặn và sắc nét
+                    spreadFactor = randomGaussian(0.95, 0.055);
+                } else if (randType < 0.90) {
+                    // 25% hạt phân bố thưa dần vào vùng lõi bên trong trái tim
+                    spreadFactor = 0.25 + Math.pow(Math.random(), 0.5) * 0.72;
+                } else {
+                    // 10% hạt bụi tỏa nhẹ ra viền ngoài
+                    spreadFactor = 1.0 + Math.abs(randomGaussian(0, 0.08));
+                }
+
+                // Tọa độ gốc tương đối so với tâm màn hình
+                this.baseX = pos.x * scale * spreadFactor;
+                this.baseY = pos.y * scale * spreadFactor;
+
+                // Thêm nhiễu vi mô để các hạt không xếp thành đường thẳng cứng nhắc
+                this.baseX += randomGaussian(0, scale * 0.18);
+                this.baseY += randomGaussian(0, scale * 0.18);
+
+                // Vị trí ban đầu phân tán ngẫu nhiên khắp màn hình như bụi sao
+                const scatterAngle = Math.random() * Math.PI * 2;
+                const scatterDist = (Math.random() * 0.65 + 0.15) * Math.max(window.innerWidth, window.innerHeight);
+                this.x = Math.cos(scatterAngle) * scatterDist;
+                this.y = Math.sin(scatterAngle) * scatterDist;
+
+                // Tốc độ hội tụ riêng biệt cho từng hạt để tạo hiệu ứng cuộn vào tự nhiên
+                this.easeSpeed = Math.random() * 0.035 + 0.035;
+                this.vx = 0;
+                this.vy = 0;
+
+                // Kích thước hạt nhỏ li ti giống bụi ánh sáng
+                this.size = Math.random() * 1.6 + 0.5;
+
+                // Lưu chỉ số màu theo khoảng cách tới viền để có thể đổi bảng màu mượt mà
+                const distFromRim = Math.abs(spreadFactor - 0.96);
+                if (distFromRim < 0.04 && Math.random() > 0.3) {
+                    this.colorIndex = Math.random() > 0.7 ? 4 : 0; // Sáng rực ở viền
+                } else if (distFromRim < 0.12) {
+                    this.colorIndex = 1;
+                } else {
+                    this.colorIndex = Math.random() > 0.5 ? 2 : 3; // Đậm và trầm hơn ở vùng rìa/trong
+                }
+
+                this.applyThemeColor(colorThemes[currentThemeIndex]);
+
+                // Độ mờ cơ bản: hạt ở viền sáng rõ, hạt sâu bên trong hoặc ngoài cùng mờ dần
+                const edgeFade = Math.max(0.15, 1 - distFromRim * 1.4);
+                this.baseAlpha = (Math.random() * 0.5 + 0.4) * edgeFade;
+                this.alpha = this.baseAlpha;
+
+                // Tham số chuyển động dao động nhẹ và lấp lánh độc lập
+                this.twinkleSpeed = Math.random() * 0.06 + 0.02;
+                this.twinklePhase = Math.random() * Math.PI * 2;
+                this.driftRadius = Math.random() * 2.2 + 0.5;
+                this.driftSpeed = Math.random() * 0.03 + 0.01;
+                this.driftAngle = Math.random() * Math.PI * 2;
+
+                // Hệ số phản ứng với nhịp đập (viền ngoài đập rõ hơn một chút)
+                this.pulseResponse = 0.8 + spreadFactor * 0.25;
+            }
+
+            applyThemeColor(theme) {
+                const c = theme.palette[this.colorIndex];
+                this.targetR = c.r;
+                this.targetG = c.g;
+                this.targetB = c.b;
+                if (this.r === undefined) {
+                    this.r = c.r;
+                    this.g = c.g;
+                    this.b = c.b;
+                }
+            }
+
+            update(pulseScale, centerX, centerY) {
+                // Chuyển màu mượt mà về màu mục tiêu của bảng màu hiện tại
+                this.r += (this.targetR - this.r) * 0.08;
+                this.g += (this.targetG - this.g) * 0.08;
+                this.b += (this.targetB - this.b) * 0.08;
+
+                // 1. Hiệu ứng lấp lánh (Twinkle)
+                this.twinklePhase += this.twinkleSpeed;
+                const twinkle = Math.sin(this.twinklePhase) * 0.35 + 0.85;
+                // Khi chưa mở, hạt mờ ảo như bụi sao nền; khi mở thì sáng rõ dần
+                const stateAlphaFactor = isOpened ? 1 : 0.35;
+                this.alpha = Math.min(1, Math.max(0.03, this.baseAlpha * twinkle * stateAlphaFactor));
+
+                // 2. Chuyển động rung rinh tự nhiên tại chỗ
+                this.driftAngle += this.driftSpeed;
+                const driftX = Math.cos(this.driftAngle) * this.driftRadius;
+                const driftY = Math.sin(this.driftAngle) * this.driftRadius;
+
+                // Nếu chưa nhấn Open: các hạt trôi nổi nhẹ nhàng như bụi ánh sáng ngoài không gian
+                if (!isOpened) {
+                    this.x += Math.cos(this.driftAngle * 0.5) * 0.25;
+                    this.y += Math.sin(this.driftAngle * 0.5) * 0.25;
+                    return;
+                }
+
+                // 3. Tính toán vị trí mục tiêu theo nhịp đập của trái tim
+                const currentScale = 1 + (pulseScale - 1) * this.pulseResponse;
+                const targetX = this.baseX * currentScale + driftX;
+                const targetY = this.baseY * currentScale + driftY;
+
+                // 4. Tương tác đẩy nhẹ khi di chuột / chạm tay vào trái tim
+                if (mouse.active) {
+                    const worldX = centerX + this.x;
+                    const worldY = centerY + this.y;
+                    const dx = worldX - mouse.x;
+                    const dy = worldY - mouse.y;
+                    const dist = Math.sqrt(dx * dx + dy * dy);
+
+                    if (dist < mouse.radius && dist > 0) {
+                        const force = (mouse.radius - dist) / mouse.radius;
+                        const angle = Math.atan2(dy, dx);
+                        this.vx += Math.cos(angle) * force * 2.5;
+                        this.vy += Math.sin(angle) * force * 2.5;
+                    }
+                }
+
+                // Lực đàn hồi kéo hạt hội tụ và giữ vị trí trên trái tim
+                this.vx += (targetX - this.x) * this.easeSpeed;
+                this.vy += (targetY - this.y) * this.easeSpeed;
+
+                // Ma sát làm mượt chuyển động
+                this.vx *= 0.82;
+                this.vy *= 0.82;
+
+                this.x += this.vx;
+                this.y += this.vy;
+            }
+
+            draw(ctx, centerX, centerY) {
+                const drawX = centerX + this.x;
+                const drawY = centerY + this.y;
+
+                ctx.fillStyle = `rgba(${Math.round(this.r)}, ${Math.round(this.g)}, ${Math.round(this.b)}, ${this.alpha})`;
+                ctx.beginPath();
+                ctx.arc(drawX, drawY, this.size, 0, Math.PI * 2);
+                ctx.fill();
+            }
+        }
+
+        /**
+         * Chọn ngẫu nhiên một bảng màu khác với màu hiện tại và áp dụng cho toàn bộ hạt + tên
+         */
+        function randomizeTheme() {
+            if (colorThemes.length <= 1) return;
+            let nextIndex;
+            do {
+                nextIndex = Math.floor(Math.random() * colorThemes.length);
+            } while (nextIndex === currentThemeIndex);
+
+            currentThemeIndex = nextIndex;
+            const theme = colorThemes[currentThemeIndex];
+
+            for (let i = 0; i < particles.length; i++) {
+                particles[i].applyThemeColor(theme);
+            }
+
+            // Cập nhật màu phát sáng cho tên ở trung tâm trái tim
+            heartNameLabel.style.color = theme.textColor;
+            heartNameLabel.style.textShadow = theme.textShadow;
+        }
+
+        /**
+         * Khởi tạo hoặc cập nhật kích thước Canvas và danh sách hạt khi thay đổi màn hình
+         */
+        function init() {
+            const dpr = Math.min(window.devicePixelRatio || 1, 2);
+            width = window.innerWidth;
+            height = window.innerHeight;
+
+            canvas.width = width * dpr;
+            canvas.height = height * dpr;
+            ctx.scale(dpr, dpr);
+
+            // Tính tỷ lệ kích thước trái tim phù hợp với cả màn hình dọc (mobile) và ngang (desktop)
+            const minDimension = Math.min(width, height);
+            const heartScale = minDimension / 42;
+
+            // Số lượng hạt lớn (khoảng 3200 - 4500 hạt) để tạo độ mịn và dày đặc như hình ảnh
+            const particleCount = width < 600 ? 3200 : 4500;
+
+            particles = [];
+            for (let i = 0; i < particleCount; i++) {
+                const p = new Particle(heartScale);
+                // Nếu đã mở rồi mà người dùng xoay/resize màn hình thì giữ hạt ở đúng vị trí trái tim
+                if (isOpened) {
+                    p.x = p.baseX;
+                    p.y = p.baseY;
+                }
+                particles.push(p);
+            }
+        }
+
+        /**
+         * Hàm tính toán nhịp đập trái tim sinh học (lub-dub) nhẹ nhàng
+         */
+        function getHeartbeatScale(t) {
+            if (!isPulsing || !isOpened) return 1.0;
+
+            // Chu kỳ nhịp đập tự nhiên gồm 2 nhịp liên tiếp nhẹ nhàng rồi nghỉ
+            const cycle = t % (Math.PI * 2);
+            const beat1 = Math.pow(Math.sin(cycle), 12) * 0.055;
+            const beat2 = Math.pow(Math.sin(cycle - 0.45), 16) * 0.035;
+            return 1.0 + beat1 + beat2;
+        }
+
+        /**
+         * Vòng lặp diễn hoạt chính (60fps)
+         */
+        function animate() {
+            // Vẽ lớp nền với độ mờ nhẹ để tạo vệt sáng cực mảnh khi hạt chuyển động
+            ctx.globalCompositeOperation = 'source-over';
+            ctx.fillStyle = 'rgba(11, 11, 18, 0.45)';
+            ctx.fillRect(0, 0, width, height);
+
+            // Chế độ hòa trộn 'lighter' giúp các hạt chồng lên nhau tự động phát sáng rực rỡ
+            ctx.globalCompositeOperation = 'lighter';
+
+            time += 0.035;
+            const pulseScale = getHeartbeatScale(time);
+
+            // Tâm trái tim (hơi dịch lên trên một chút để cân đối thị giác)
+            const centerX = width / 2;
+            const centerY = height / 2 - Math.min(width, height) * 0.02;
+
+            // Đồng bộ nhịp đập nhẹ nhàng cho chữ tên ở giữa trái tim
+            if (isOpened && heartNameLabel.textContent) {
+                const textPulse = 1 + (pulseScale - 1) * 0.65;
+                heartNameLabel.style.transform = `translateY(-2vh) scale(${textPulse})`;
+            }
+
+            // Vẽ một quầng sáng mờ ảo phía sau làm nền cho viền trái tim (chỉ hiện khi đã mở)
+            if (isOpened) {
+                const activeTheme = colorThemes[currentThemeIndex];
+                const glowRadius = Math.min(width, height) * 0.36 * pulseScale;
+                const bgGlow = ctx.createRadialGradient(
+                    centerX, centerY, glowRadius * 0.2,
+                    centerX, centerY, glowRadius * 1.15
+                );
+                bgGlow.addColorStop(0, activeTheme.glowInner);
+                bgGlow.addColorStop(0.65, activeTheme.glowOuter);
+                bgGlow.addColorStop(1, 'rgba(11, 11, 18, 0)');
+
+                ctx.fillStyle = bgGlow;
+                ctx.beginPath();
+                ctx.arc(centerX, centerY, glowRadius * 1.15, 0, Math.PI * 2);
+                ctx.fill();
+            }
+
+            // Cập nhật và vẽ toàn bộ các hạt
+            for (let i = 0; i < particles.length; i++) {
+                particles[i].update(pulseScale, centerX, centerY);
+                particles[i].draw(ctx, centerX, centerY);
+            }
+
+            requestAnimationFrame(animate);
+        }
+
+        /**
+         * Xử lý sự kiện nhấn nút Open hoặc Enter để kích hoạt trái tim hội tụ
+         */
+        function handleOpenHeart() {
+            if (isOpened) return;
+
+            // Random màu trái tim mới mỗi lần nhấn Open
+            randomizeTheme();
+
+            // Lấy tên người dùng (nếu để trống thì ẩn nhãn tên gọn gàng)
+            const enteredName = nameInput.value.trim();
+            if (enteredName) {
+                heartNameLabel.textContent = enteredName;
+                heartNameWrapper.classList.remove('opacity-0');
+                heartNameWrapper.classList.add('opacity-100');
+            } else {
+                heartNameLabel.textContent = '';
+                heartNameWrapper.classList.remove('opacity-100');
+                heartNameWrapper.classList.add('opacity-0');
+            }
+
+            isOpened = true;
+            nameInput.blur();
+
+            // Ẩn mượt mà màn hình mở đầu
+            introOverlay.classList.add('opacity-0', 'scale-110', 'pointer-events-none');
+
+            // Hiển thị cụm nút điều khiển góc dưới
+            controlsContainer.classList.remove('opacity-0', 'pointer-events-none');
+            controlsContainer.classList.add('opacity-50', 'hover:opacity-100');
+        }
+
+        /**
+         * Quay lại màn hình nhập tên ban đầu
+         */
+        function handleBackToIntro() {
+            isOpened = false;
+
+            // Phân tán nhẹ các hạt ra lại thành bụi sao
+            for (let i = 0; i < particles.length; i++) {
+                const scatterAngle = Math.random() * Math.PI * 2;
+                const scatterDist = (Math.random() * 0.65 + 0.15) * Math.max(width, height);
+                particles[i].vx = Math.cos(scatterAngle) * 14;
+                particles[i].vy = Math.sin(scatterAngle) * 14;
+                particles[i].x = Math.cos(scatterAngle) * scatterDist;
+                particles[i].y = Math.sin(scatterAngle) * scatterDist;
+            }
+
+            // Ẩn tên và thanh điều khiển
+            heartNameWrapper.classList.remove('opacity-100');
+            heartNameWrapper.classList.add('opacity-0');
+            controlsContainer.classList.remove('opacity-50', 'hover:opacity-100');
+            controlsContainer.classList.add('opacity-0', 'pointer-events-none');
+
+            // Hiện lại màn hình mở đầu
+            introOverlay.classList.remove('opacity-0', 'scale-110', 'pointer-events-none');
+            setTimeout(() => nameInput.focus(), 300);
+        }
+
+        openBtn.addEventListener('click', handleOpenHeart);
+
+        // Hỗ trợ nhấn phím Enter trong ô nhập tên
+        nameInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                handleOpenHeart();
+            }
+        });
+
+        // Nút đổi màu trái tim ngẫu nhiên
+        randomColorBtn.addEventListener('click', randomizeTheme);
+
+        // Nút quay lại để đổi tên khác
+        changeNameBtn.addEventListener('click', handleBackToIntro);
+
+        /**
+         * Các sự kiện tương tác người dùng và thay đổi kích thước cửa sổ
+         */
+        window.addEventListener('resize', () => {
+            init();
+        });
+
+        // Tương tác chuột
+        canvas.addEventListener('mousemove', (e) => {
+            mouse.x = e.clientX;
+            mouse.y = e.clientY;
+            mouse.active = true;
+        });
+
+        canvas.addEventListener('mouseleave', () => {
+            mouse.active = false;
+        });
+
+        // Tương tác cảm ứng trên điện thoại / máy tính bảng
+        canvas.addEventListener('touchstart', (e) => {
+            if (e.touches.length > 0) {
+                mouse.x = e.touches[0].clientX;
+                mouse.y = e.touches[0].clientY;
+                mouse.active = true;
+            }
+        }, { passive: true });
+
+        canvas.addEventListener('touchmove', (e) => {
+            if (e.touches.length > 0) {
+                mouse.x = e.touches[0].clientX;
+                mouse.y = e.touches[0].clientY;
+                mouse.active = true;
+            }
+        }, { passive: true });
+
+        canvas.addEventListener('touchend', () => {
+            mouse.active = false;
+        });
+
+        // Nút bật/tắt hiệu ứng nhịp đập
+        togglePulseBtn.addEventListener('click', () => {
+            isPulsing = !isPulsing;
+            togglePulseBtn.textContent = `Nhịp đập: ${isPulsing ? 'Bật' : 'Tắt'}`;
+        });
+
+        // Khởi chạy ứng dụng khi trang tải hoàn tất
+        window.onload = function() {
+            init();
+            animate();
+        };
+    </script>
+</body>
+</html>
